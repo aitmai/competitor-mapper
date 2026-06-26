@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Competitor Mapper</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <header>
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">⬡</span>
+        <span class="logo-text">Competitor<span class="accent">Mapper</span></span>
+      </div>
+      <div class="header-meta">AI-Powered Competitive Intelligence</div>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- Control Bar -->
+    <section class="control-bar">
+      <div class="status-block">
+        <span class="status-dot" id="statusDot"></span>
+        <span class="status-text" id="statusText">Ready</span>
+      </div>
+      <div class="progress-wrap" id="progressWrap" style="display:none">
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <span class="progress-label" id="progressLabel">0 / 0</span>
+      </div>
+      <button class="run-btn" id="runBtn" onclick="runAnalysis()">
+        ▶ Run Analysis
+      </button>
+    </section>
+
+    <!-- Filter Bar -->
+    <section class="filter-bar" id="filterBar" style="display:none">
+      <input type="text" id="searchInput" placeholder="Filter by company or sector..." oninput="filterCards()">
+      <div class="filter-pills" id="filterPills"></div>
+    </section>
+
+    <!-- Results Grid -->
+    <section class="results-grid" id="resultsGrid"></section>
+
+    <!-- Empty State -->
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">◈</div>
+      <div class="empty-title">No analysis yet</div>
+      <div class="empty-sub">Click <strong>Run Analysis</strong> to pull startups from Google Sheets and map their competitors.</div>
+    </div>
+
+  </main>
+
+  <script>
+    let allResults = [];
+    let pollInterval = null;
+
+    function runAnalysis() {
+      fetch('/api/run', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) {
+            alert(data.error);
+            return;
+          }
+          document.getElementById('runBtn').disabled = true;
+          document.getElementById('progressWrap').style.display = 'flex';
+          document.getElementById('filterBar').style.display = 'none';
+          document.getElementById('emptyState').style.display = 'none';
+          startPolling();
+        });
+    }
+
+    function startPolling() {
+      pollInterval = setInterval(pollStatus, 1500);
+    }
+
+    function stopPolling() {
+      clearInterval(pollInterval);
+    }
+
+    function pollStatus() {
+      fetch('/api/status')
+        .then(r => r.json())
+        .then(state => {
+          updateStatus(state);
+          if (state.results && state.results.length > 0) {
+            allResults = state.results;
+            renderCards(allResults);
+          }
+          if (state.status === 'done' || state.status === 'error') {
+            stopPolling();
+            document.getElementById('runBtn').disabled = false;
+            document.getElementById('progressWrap').style.display = 'none';
+            document.getElementById('filterBar').style.display = 'flex';
+          }
+        });
+    }
+
+    function updateStatus(state) {
+      const dot  = document.getElementById('statusDot');
+      const text = document.getElementById('statusText');
+      const fill = document.getElementById('progressFill');
+      const label = document.getElementById('progressLabel');
+
+      text.textContent = state.current || 'Ready';
+
+      dot.className = 'status-dot';
+      if (state.status === 'running') dot.classList.add('running');
+      else if (state.status === 'done')  dot.classList.add('done');
+      else if (state.status === 'error') dot.classList.add('error');
+
+      if (state.total > 0) {
+        const pct = Math.round((state.progress / state.total) * 100);
+        fill.style.width = pct + '%';
+        label.textContent = `${state.progress} / ${state.total}`;
+      }
+    }
+
+    function renderCards(results) {
+      const grid  = document.getElementById('resultsGrid');
+      const empty = document.getElementById('emptyState');
+      empty.style.display = 'none';
+
+      // Build sector pill filters
+      const sectors = [...new Set(results.map(r => r.sector))];
+      const pillsEl = document.getElementById('filterPills');
+      pillsEl.innerHTML = sectors.map(s =>
+        `<button class="pill active" onclick="togglePill(this, '${s}')">${s}</button>`
+      ).join('');
+
+      grid.innerHTML = results.map(r => cardHTML(r)).join('');
+    }
+
+    function cardHTML(r) {
+      const moatClass = {
+        'Strong': 'moat-strong',
+        'Medium': 'moat-medium',
+        'Weak':   'moat-weak',
+      }[r.moat_rating] || 'moat-unknown';
+
+      const competitors = (r.competitors || []).map(c => {
+        const threatClass = {
+          'High':   'threat-high',
+          'Medium': 'threat-med',
+          'Low':    'threat-low',
+        }[c.threat] || '';
+
+        return `
+          <div class="competitor-row">
+            <div class="comp-left">
+              <span class="comp-name">${c.name}</span>
+              <span class="comp-funding">${c.funding}</span>
+            </div>
+            <span class="threat-badge ${threatClass}">${c.threat}</span>
+          </div>
+          <div class="comp-why">${c.why}</div>
+        `;
+      }).join('');
+
+      return `
+        <div class="card" data-sector="${r.sector}" data-company="${r.company_name.toLowerCase()}">
+          <div class="card-header">
+            <div class="card-title-block">
+              <span class="card-company">${r.company_name}</span>
+              <span class="card-meta">${r.stage} · ${r.sector}</span>
+            </div>
+            <span class="moat-badge ${moatClass}">${r.moat_rating} Moat</span>
+          </div>
+          <div class="moat-explanation">${r.moat_explanation}</div>
+          <div class="competitors-label">Top Competitors</div>
+          <div class="competitors-list">${competitors || '<div class="no-data">No competitors found</div>'}</div>
+          <div class="market-summary">${r.market_summary}</div>
+          ${r.website ? `<a class="card-link" href="https://${r.website}" target="_blank">↗ ${r.website}</a>` : ''}
+        </div>
+      `;
+    }
+
+    function filterCards() {
+      const query = document.getElementById('searchInput').value.toLowerCase();
+      const activePills = [...document.querySelectorAll('.pill.active')].map(p => p.textContent);
+      document.querySelectorAll('.card').forEach(card => {
+        const company = card.dataset.company || '';
+        const sector  = card.dataset.sector  || '';
+        const matchText = company.includes(query);
+        const matchPill = activePills.length === 0 || activePills.includes(sector);
+        card.style.display = (matchText && matchPill) ? '' : 'none';
+      });
+    }
+
+    function togglePill(el, sector) {
+      el.classList.toggle('active');
+      filterCards();
+    }
+  </script>
+</body>
+</html>

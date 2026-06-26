@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Competitor Mapper</title>
+  <style>
+    /* ── Reset & Base ──────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0a0a0f;
+      --surface:   #111118;
+      --panel:     #16161f;
+      --border:    #1e1e2e;
+      --cyan:      #00e5ff;
+      --green:     #00ff88;
+      --amber:     #ffaa00;
+      --red:       #ff4444;
+      --muted:     #4a4a6a;
+      --text:      #c8c8e8;
+      --text-dim:  #6a6a8a;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --font-ui:   'Inter', system-ui, sans-serif;
+      --radius:    6px;
+      --glow-cyan: 0 0 20px rgba(0,229,255,0.15);
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+      min-height: 100vh;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* ── Layout ────────────────────────────────────────────── */
+    .shell {
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      min-height: 100vh;
+    }
+
+    /* ── Top Bar ───────────────────────────────────────────── */
+    .topbar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 28px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--cyan);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .logo-sep { color: var(--muted); font-weight: 300; }
+
+    .logo-sub {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .status-pill {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      border: 1px solid var(--muted);
+      color: var(--text-dim);
+      background: transparent;
+      transition: all 0.3s;
+    }
+    .status-pill.running  { border-color: var(--amber); color: var(--amber); animation: pulse-amber 1.4s infinite; }
+    .status-pill.done     { border-color: var(--green); color: var(--green); }
+    .status-pill.error    { border-color: var(--red);   color: var(--red);   }
+
+    @keyframes pulse-amber {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.5; }
+    }
+
+    .btn-run {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 7px 18px;
+      border-radius: var(--radius);
+      border: 1px solid var(--cyan);
+      background: transparent;
+      color: var(--cyan);
+      cursor: pointer;
+      transition: background 0.2s, box-shadow 0.2s;
+    }
+    .btn-run:hover:not(:disabled) {
+      background: rgba(0,229,255,0.08);
+      box-shadow: var(--glow-cyan);
+    }
+    .btn-run:disabled {
+      border-color: var(--muted);
+      color: var(--muted);
+      cursor: not-allowed;
+    }
+
+    /* ── Control Bar ───────────────────────────────────────── */
+    .control-bar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 28px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .progress-wrap {
+      flex: 1;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--cyan), var(--green));
+      border-radius: 2px;
+      width: 0%;
+      transition: width 0.5s ease;
+    }
+
+    .progress-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-dim);
+      white-space: nowrap;
+      min-width: 80px;
+    }
+
+    .filter-btns {
+      display: flex;
+      gap: 6px;
+    }
+    .filter-btn {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .filter-btn.active,
+    .filter-btn:hover { border-color: var(--cyan); color: var(--cyan); background: rgba(0,229,255,0.06); }
+    .filter-btn.high  { border-color: var(--red);   color: var(--red);   }
+    .filter-btn.med   { border-color: var(--amber);  color: var(--amber); }
+    .filter-btn.low   { border-color: var(--green);  color: var(--green); }
+
+    /* ── Main Content ──────────────────────────────────────── */
+    .main {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      height: calc(100vh - 52px - 46px);
+      overflow: hidden;
+    }
+
+    /* ── Log Panel ─────────────────────────────────────────── */
+    .log-panel {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .log-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .log-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+    }
+
+    .log-body::-webkit-scrollbar { width: 4px; }
+    .log-body::-webkit-scrollbar-track { background: transparent; }
+    .log-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .log-line {
+      padding: 2px 16px;
+      line-height: 1.7;
+      color: var(--text-dim);
+    }
+    .log-line .ts { color: var(--muted); margin-right: 8px; }
+    .log-line .msg { color: var(--text); }
+    .log-line.err .msg { color: var(--red); }
+    .log-line.ok  .msg { color: var(--green); }
+
+    /* ── Results Panel ─────────────────────────────────────── */
+    .results-panel {
+      overflow-y: auto;
+      padding: 24px 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+    .results-panel::-webkit-scrollbar { width: 5px; }
+    .results-panel::-webkit-scrollbar-track { background: transparent; }
+    .results-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Empty / Loading State ─────────────────────────────── */
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      padding: 60px 0;
+    }
+    .empty-state .icon { font-size: 36px; opacity: 0.3; }
+
+    /* ── Startup Card ──────────────────────────────────────── */
+    .startup-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .startup-card-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .startup-name {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--cyan);
+    }
+
+    .startup-meta {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .tag {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      background: var(--surface);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .startup-desc {
+      padding: 10px 20px 14px;
+      font-size: 12.5px;
+      color: var(--text-dim);
+      line-height: 1.6;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* ── Competitor Table ──────────────────────────────────── */
+    .comp-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .comp-table th {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+      padding: 10px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .comp-table td {
+      padding: 11px 16px;
+      font-size: 12.5px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    .comp-table tr:last-child td { border-bottom: none; }
+
+    .comp-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .comp-name {
+      font-weight: 600;
+      color: var(--text);
+    }
+    .comp-site {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    .funding-chip {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text);
+    }
+    .funding-amount {
+      font-size: 10px;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    .differentiator { font-size: 12px; color: var(--text-dim); }
+
+    /* ── Threat Badge ──────────────────────────────────────── */
+    .threat-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      padding: 3px 9px;
+      border-radius: 3px;
+      border: 1px solid;
+    }
+    .threat-badge.HIGH   { color: var(--red);   border-color: rgba(255,68,68,0.4);   background: rgba(255,68,68,0.08);   }
+    .threat-badge.MEDIUM { color: var(--amber);  border-color: rgba(255,170,0,0.4);   background: rgba(255,170,0,0.08);   }
+    .threat-badge.LOW    { color: var(--green);  border-color: rgba(0,255,136,0.4);   background: rgba(0,255,136,0.08);   }
+
+    .threat-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .threat-reason { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+
+    /* ── No competitors row ────────────────────────────────── */
+    .no-comp {
+      padding: 20px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-dim);
+      text-align: center;
+    }
+
+    /* ── Scrollbar global ──────────────────────────────────── */
+    * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  </style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Top Bar -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="logo">Competitor<span class="logo-sep"> / </span>Mapper</span>
+      <span class="logo-sub">reads Startups-To-Evaluate → Claude analysis → Competitor-Map</span>
+    </div>
+    <div class="topbar-right">
+      <span class="status-pill" id="statusPill">IDLE</span>
+      <button class="btn-run" id="btnRun" onclick="runAnalysis()">▶ Run Analysis</button>
+    </div>
+  </header>
+
+  <!-- Control Bar -->
+  <div class="control-bar">
+    <div class="progress-wrap">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+    <span class="progress-label" id="progressLabel">0 / 0</span>
+    <div class="filter-btns">
+      <button class="filter-btn active" onclick="setFilter('all',this)">All</button>
+      <button class="filter-btn high"   onclick="setFilter('HIGH',this)">● High</button>
+      <button class="filter-btn med"    onclick="setFilter('MEDIUM',this)">● Medium</button>
+      <button class="filter-btn low"    onclick="setFilter('LOW',this)">● Low</button>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <!-- Log -->
+    <aside class="log-panel">
+      <div class="log-header">// activity log</div>
+      <div class="log-body" id="logBody">
+        <div class="log-line"><span class="msg" style="color:var(--muted)">Waiting for run...</span></div>
+      </div>
+    </aside>
+
+    <!-- Results -->
+    <section class="results-panel" id="resultsPanel">
+      <div class="empty-state" id="emptyState">
+        <span class="icon">⬡</span>
+        <span>Press <strong style="color:var(--cyan)">Run Analysis</strong> to map competitors</span>
+      </div>
+    </section>
+  </div>
+
+</div>
+
+<script>
+  let currentFilter = 'all';
+  let lastResultCount = 0;
+  let eventSource = null;
+
+  // ── Run ────────────────────────────────────────────────────
+  async function runAnalysis() {
+    const btn = document.getElementById('btnRun');
+    btn.disabled = true;
+    clearLog();
+    clearResults();
+
+    const resp = await fetch('/api/run', { method: 'POST' });
+    if (!resp.ok) {
+      addLog('Failed to start — is the server running?', 'err');
+      btn.disabled = false;
+      return;
+    }
+
+    startStream();
+  }
+
+  // ── SSE Stream ─────────────────────────────────────────────
+  function startStream() {
+    if (eventSource) eventSource.close();
+    eventSource = new EventSource('/api/stream');
+
+    eventSource.onmessage = (e) => {
+      const state = JSON.parse(e.data);
+      applyState(state);
+    };
+
+    eventSource.onerror = () => {
+      eventSource.close();
+    };
+  }
+
+  // ── Apply State ────────────────────────────────────────────
+  function applyState(state) {
+    // Status pill
+    const pill = document.getElementById('statusPill');
+    pill.textContent = state.status.toUpperCase();
+    pill.className = 'status-pill ' + state.status;
+
+    // Progress
+    const pct = state.total > 0 ? (state.progress / state.total) * 100 : 0;
+    document.getElementById('progressBar').style.width = pct + '%';
+    document.getElementById('progressLabel').textContent = state.progress + ' / ' + state.total;
+
+    // Log
+    renderLog(state.log);
+
+    // Results — only re-render new ones
+    if (state.results.length > lastResultCount) {
+      const newResults = state.results.slice(lastResultCount);
+      newResults.forEach(r => appendResult(r));
+      lastResultCount = state.results.length;
+    }
+
+    // Done
+    if (state.status === 'done' || state.status === 'error') {
+      document.getElementById('btnRun').disabled = false;
+      if (eventSource) eventSource.close();
+    }
+  }
+
+  // ── Log ────────────────────────────────────────────────────
+  function clearLog() {
+    document.getElementById('logBody').innerHTML = '';
+  }
+
+  function renderLog(lines) {
+    const body = document.getElementById('logBody');
+    body.innerHTML = lines.map(l => {
+      const cls = l.msg.startsWith('ERROR') ? 'err' : l.msg.includes('✓') ? 'ok' : '';
+      return `<div class="log-line ${cls}"><span class="ts">${l.ts}</span><span class="msg">${escHtml(l.msg)}</span></div>`;
+    }).join('');
+    body.scrollTop = body.scrollHeight;
+  }
+
+  function addLog(msg, cls = '') {
+    const body = document.getElementById('logBody');
+    const ts = new Date().toTimeString().slice(0,8);
+    body.innerHTML += `<div class="log-line ${cls}"><span class="ts">${ts}</span><span class="msg">${escHtml(msg)}</span></div>`;
+    body.scrollTop = body.scrollHeight;
+  }
+
+  // ── Results ────────────────────────────────────────────────
+  function clearResults() {
+    lastResultCount = 0;
+    const panel = document.getElementById('resultsPanel');
+    panel.innerHTML = '<div class="empty-state" id="emptyState"><span class="icon">⬡</span><span>Analyzing...</span></div>';
+  }
+
+  function appendResult(result) {
+    const panel = document.getElementById('resultsPanel');
+    // Remove empty state on first result
+    const es = document.getElementById('emptyState');
+    if (es) es.remove();
+
+    const card = buildCard(result);
+    panel.appendChild(card);
+  }
+
+  function buildCard(result) {
+    const wrap = document.createElement('div');
+    wrap.className = 'startup-card';
+    wrap.dataset.startup = result.startup_name;
+
+    const comps = result.competitors || [];
+    const hasComps = comps.length > 0;
+
+    const siteLink = result.website
+      ? `<a href="${escHtml(result.website)}" target="_blank" style="color:var(--text-dim);font-size:11px;font-family:var(--font-mono)">${escHtml(result.website)}</a>`
+      : '';
+
+    wrap.innerHTML = `
+      <div class="startup-card-header">
+        <div>
+          <div class="startup-name">${escHtml(result.startup_name)}</div>
+          ${siteLink}
+        </div>
+        <div class="startup-meta">
+          <span class="tag">${escHtml(result.sector)}</span>
+          <span class="tag">${escHtml(result.stage)}</span>
+          <span class="tag">${comps.length} competitor${comps.length !== 1 ? 's' : ''}</span>
+        </div>
+      </div>
+      ${result.description ? `<div class="startup-desc">${escHtml(result.description)}</div>` : ''}
+      ${hasComps ? buildTable(comps) : '<div class="no-comp">No direct competitors identified</div>'}
+    `;
+    return wrap;
+  }
+
+  function buildTable(competitors) {
+    const rows = competitors.map(c => {
+      const threat = (c.threat_level || 'MEDIUM').toUpperCase();
+      const funding = c.estimated_funding_m > 0 ? `$${c.estimated_funding_m}M` : '—';
+      return `
+        <tr class="comp-row" data-threat="${threat}">
+          <td>
+            <div class="comp-name">${escHtml(c.name)}</div>
+            <div class="comp-site">${escHtml(c.website || '')}</div>
+          </td>
+          <td>
+            <div class="funding-chip">${escHtml(c.funding_stage || '—')}</div>
+            <div class="funding-amount">${funding}</div>
+          </td>
+          <td class="differentiator">${escHtml(c.key_differentiator || '—')}</td>
+          <td>
+            <span class="threat-badge ${threat}"><span class="threat-dot"></span>${threat}</span>
+            <div class="threat-reason">${escHtml(c.threat_reason || '')}</div>
+          </td>
+        </tr>`;
+    }).join('');
+
+    return `
+      <table class="comp-table">
+        <thead>
+          <tr>
+            <th>Competitor</th>
+            <th>Funding</th>
+            <th>Differentiator</th>
+            <th>Threat</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  // ── Filter ─────────────────────────────────────────────────
+  function setFilter(level, btn) {
+    currentFilter = level;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    document.querySelectorAll('.comp-row').forEach(row => {
+      row.style.display = (level === 'all' || row.dataset.threat === level) ? '' : 'none';
+    });
+  }
+
+  // ── Utils ──────────────────────────────────────────────────
+  function escHtml(s) {
+    if (!s && s !== 0) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+</script>
+</body>
+</html>
